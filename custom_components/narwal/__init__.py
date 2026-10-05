@@ -29,6 +29,7 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     SERVICE_CLEAN_ROOMS,
+    SERVICE_REFRESH_MAP,
     configured_model_name,
     fan_speed_map_for,
 )
@@ -471,6 +472,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
         async_clean_rooms,
         schema=CLEAN_ROOMS_SCHEMA,
     )
+
+    async def async_refresh_map(call: ServiceCall) -> None:
+        """Re-fetch the static map from every loaded Narwal vacuum."""
+        coordinators = [
+            coordinator
+            for coordinator in _domain_data(hass).values()
+            if isinstance(coordinator, NarwalCoordinator)
+        ]
+        if not coordinators:
+            raise HomeAssistantError("No Narwal vacuum is loaded")
+        results = [await coordinator.async_refresh_map() for coordinator in coordinators]
+        if not all(results):
+            raise HomeAssistantError("Narwal map could not be refreshed")
+
+    hass.services.async_register(DOMAIN, SERVICE_REFRESH_MAP, async_refresh_map)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
