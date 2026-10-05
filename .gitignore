@@ -66,3 +66,5 @@ run_analysis*.py
 prompt.md
 .planning.bak-*/
 .claude.bak-*/
+
+*.local.md
