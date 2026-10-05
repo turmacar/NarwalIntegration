@@ -2313,8 +2313,8 @@ class NarwalCoordinator(DataUpdateCoordinator[NarwalState]):
             and self._prev_working_status
             in ACTIVE_CLEANING_STATUSES
         ):
-            _LOGGER.info("Return-to-dock detected, refreshing dock status")
-            self.hass.async_create_task(self._refresh_dock_status())
+            _LOGGER.info("Return-to-dock detected, refreshing dock status and map")
+            self.hass.async_create_task(self._refresh_after_clean())
         self._handle_working_status_transition(state)
         self._retain_native_trajectory(state)
         self._schedule_map_display_cache_save(state)
@@ -2367,6 +2367,23 @@ class NarwalCoordinator(DataUpdateCoordinator[NarwalState]):
                 "Broadcast received (status=%s) — normal polling restored",
                 state.working_status.name,
             )
+
+    async def _refresh_after_clean(self) -> None:
+        """Refresh dock status, then the map, once a clean ends."""
+        await self._refresh_dock_status()
+        await self.async_refresh_map()
+
+    async def async_refresh_map(self) -> bool:
+        """Re-fetch the static map; the cached map is kept if the robot can't supply one."""
+        try:
+            await self.client.get_map()
+        except Exception:
+            _LOGGER.debug("Map refresh failed")
+            return False
+        self._scope_pending_map_display_cache_snapshot()
+        self._restore_pending_map_display_cache()
+        self.async_set_updated_data(self.client.state)
+        return True
 
     async def _fetch_missing_map(self) -> None:
         """Fetch static map when it's missing (get_map failed at startup)."""
