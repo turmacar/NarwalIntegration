@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 import tests.ha_stubs  # noqa: E402
 
 tests.ha_stubs.install()
 
+from homeassistant.exceptions import HomeAssistantError  # noqa: E402
+
+from custom_components.narwal import _async_register_services  # noqa: E402
+from custom_components.narwal.const import DOMAIN, SERVICE_REFRESH_MAP  # noqa: E402
 from custom_components.narwal.coordinator import NarwalCoordinator  # noqa: E402
 from custom_components.narwal.narwal_client import NarwalState  # noqa: E402
 from custom_components.narwal.narwal_client.const import WorkingStatus  # noqa: E402
@@ -70,3 +77,46 @@ async def test_async_refresh_map_failure_keeps_cached_map() -> None:
     assert coordinator.client.state.map_data is cached_map
     coordinator._restore_pending_map_display_cache.assert_not_called()
     coordinator.async_set_updated_data.assert_not_called()
+
+
+def _refresh_map_handler(loaded: dict):
+    hass = MagicMock()
+    hass.data = {DOMAIN: loaded}
+    hass.services.has_service.return_value = False
+    handlers = {}
+    hass.services.async_register.side_effect = (
+        lambda domain, name, handler, **kwargs: handlers.setdefault((domain, name), handler)
+    )
+    _async_register_services(hass)
+    return handlers[(DOMAIN, SERVICE_REFRESH_MAP)]
+
+
+async def test_refresh_map_service_refreshes_every_loaded_vacuum() -> None:
+    first, second = _coordinator(), _coordinator()
+    first.async_refresh_map = AsyncMock(return_value=True)
+    second.async_refresh_map = AsyncMock(return_value=True)
+    handler = _refresh_map_handler({"entry-1": first, "entry-2": second, "other": object()})
+
+    await handler(SimpleNamespace(data={}))
+
+    first.async_refresh_map.assert_awaited_once()
+    second.async_refresh_map.assert_awaited_once()
+
+
+async def test_refresh_map_service_reports_failure_after_trying_every_vacuum() -> None:
+    failing, healthy = _coordinator(), _coordinator()
+    failing.async_refresh_map = AsyncMock(return_value=False)
+    healthy.async_refresh_map = AsyncMock(return_value=True)
+    handler = _refresh_map_handler({"entry-1": failing, "entry-2": healthy})
+
+    with pytest.raises(HomeAssistantError, match="could not be refreshed"):
+        await handler(SimpleNamespace(data={}))
+
+    healthy.async_refresh_map.assert_awaited_once()
+
+
+async def test_refresh_map_service_requires_a_loaded_vacuum() -> None:
+    handler = _refresh_map_handler({})
+
+    with pytest.raises(HomeAssistantError, match="No Narwal vacuum is loaded"):
+        await handler(SimpleNamespace(data={}))

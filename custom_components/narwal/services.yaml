@@ -66,3 +66,6 @@ clean_rooms:
           options:
             - standard
             - meticulous
+refresh_map:
+  name: Refresh map
+  description: Re-fetch the static map from the vacuum, for example after editing rooms in the Narwal app.
